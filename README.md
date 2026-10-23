@@ -56,3 +56,10 @@ encrypted file sizes. GitHub runners and trusted workflow editors are inside the
 privacy boundary. Never commit `.cloud/key`, plaintext projects, or private logs.
 
 See [cloud/README.md](cloud/README.md) for transport details and local verification.
+
+## Live verification
+
+The deployed workflow was tested on GitHub Actions with a segmented **1080p/24 FPS**
+video containing 2D and 3D scenes, generated music and SFX. All 192 final frame hashes
+matched the original segment frames, and the final and preview audio streams decoded
+successfully. See [TESTING.md](TESTING.md) for run links, timings and reproduction steps.
