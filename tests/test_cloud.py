@@ -183,6 +183,21 @@ class CloudContracts(unittest.TestCase):
                 cloud.init(argparse.Namespace(repo="owner/render", update_workflow=False))
         self.assertFalse((local / "key").exists())
 
+    def test_transcription_before_storyboard_needs_only_audio_and_config(self):
+        (self.root / "input").mkdir()
+        (self.root / "input/voice.wav").write_bytes(b"audio")
+        (self.root / "config.json").write_text(json.dumps({"voiceover": "input/voice.wav", "duration": 548.76}), encoding="utf-8")
+        plan = make_plan(self.root, mode="transcribe")
+        self.assertEqual(plan["mode"], "transcribe")
+        self.assertEqual(plan["model"], "small")
+        self.assertIsNone(plan["language"])
+        self.assertEqual(len(plan["segments"]), 1)
+        self.assertFalse((self.root / "story").exists())
+        with self.assertRaises(ValueError):
+            make_plan(self.root, mode="transcribe", model="unknown")
+        with self.assertRaises(ValueError):
+            make_plan(self.root, mode="transcribe", language="auto-detect")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,9 +95,23 @@ def extract_archive(source, destination):
 
 
 def make_plan(project, mode="final", segment_seconds=60, workers=2,
-              start=0, end=None, scale=None, times="1", styles="dusk,midnight,golden,neon,storybook"):
+              start=0, end=None, scale=None, times="1", styles="dusk,midnight,golden,neon,storybook",
+              model="small", language=None):
     project = Path(project)
     cfg = json.loads((project / "config.json").read_text(encoding="utf-8"))
+    if mode == "transcribe":
+        duration = cfg.get("duration")
+        if not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
+            raise ValueError("Transcription needs a positive config.duration")
+        voice = (project / cfg["voiceover"]).resolve()
+        if not voice.is_relative_to(project.resolve()) or not voice.is_file():
+            raise ValueError("Voiceover must be a file inside the project")
+        if model not in ("tiny", "base", "small", "medium", "large-v3"):
+            raise ValueError("Invalid Whisper model")
+        if language is not None and (not language.isalpha() or len(language) not in (2, 3)):
+            raise ValueError("Use a two/three-letter language code, or omit it for detection")
+        return {"version": 1, "mode": mode, "duration": duration, "model": model,
+                "language": language, "segments": [{"start": 0, "end": duration}]}
     story = json.loads((project / "story/shots.json").read_text(encoding="utf-8"))
     if not story.get("shots"):
         raise ValueError("Project needs a shot list")

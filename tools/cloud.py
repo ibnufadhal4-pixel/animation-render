@@ -109,7 +109,8 @@ def submit(args):
     if not project.is_dir() or not project.is_relative_to(ROOT / "projects"):
         raise ValueError("Store the project inside this studio's projects/ folder")
     plan = make_plan(project, args.mode, args.segment_seconds, args.workers,
-                     args.start, args.end, args.scale, args.times, args.styles)
+                     args.start, args.end, args.scale, args.times, args.styles,
+                     model=args.model, language=args.lang)
     identifier = "cloud-" + uuid.uuid4().hex
     work = LOCAL / "jobs" / identifier
     work.mkdir(parents=True)
@@ -203,7 +204,9 @@ def parser():
     setup.add_argument("--update-workflow", action="store_true")
     send = sub.add_parser("submit", help="Encrypt, upload and dispatch a render")
     send.add_argument("--project", required=True)
-    send.add_argument("--mode", choices=["final", "preview", "sheet", "styles", "stills"], default="final")
+    send.add_argument("--mode", choices=["final", "preview", "sheet", "styles", "stills", "transcribe"], default="final")
+    send.add_argument("--model", choices=["tiny", "base", "small", "medium", "large-v3"], default="small")
+    send.add_argument("--lang", help="Transcription language code; omit for automatic detection")
     send.add_argument("--segment-seconds", type=float, default=60)
     send.add_argument("--workers", type=int, default=2)
     send.add_argument("--from", dest="start", type=float, default=0)

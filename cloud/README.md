@@ -6,6 +6,7 @@ See the plugin's `references/cloud-render.md` for setup and the agent workflow. 
 
 ```bash
 python tools/cloud.py init --repo OWNER/REPO
+python tools/cloud.py submit --project projects/my-video --mode transcribe --model small
 python tools/cloud.py submit --project projects/my-video --mode sheet
 python tools/cloud.py submit --project projects/my-video --mode preview --from 0 --to 30
 python tools/cloud.py submit --project projects/my-video --mode final --segment-seconds 60
@@ -28,6 +29,17 @@ On failure, use GitHub's **Re-run failed jobs** within 24 hours to reuse success
 Privacy boundaries: public observers can see workflow code, run timing/status, segment counts, encrypted file sizes and encrypted packages. GitHub's runner decrypts the project to render it. Repository collaborators who can edit workflows or access secrets are trusted. Do not print decrypted diagnostics in public logs/issues or add plaintext project files to Git history. Encryption does not remove previously published files.
 
 Standard hosted Linux runner compute is free for public repositories under GitHub's current plan; artifact storage and execution/concurrency limits still apply. This is batch rendering, not a persistent server. Keep artifact retention short and remove completed jobs rather than using Actions as a video archive.
+
+## Cloud transcription
+
+Transcription can run before any storyboard exists: it needs only `config.json`
+with duration/voiceover and audio inside the project. The cloud installs faster-whisper,
+detects the spoken language by default and returns encrypted `timeline/` files:
+plain `script.txt`, timestamped `transcript.txt`, `transcript.srt`, word/sentence JSON
+and `transcription.json` with detection/coverage metadata. Fetch works as for renders;
+results live in `projects/<slug>/out/<job-id>/timeline/`. Import the inspected timeline
+into the project's `timeline/` for subsequent story planning. `--lang en` pins a known
+language; omit it to detect. No model inference runs on the local PC.
 
 ## Verification
 

@@ -6,7 +6,7 @@ If a plain-text script is given, its exact wording is kept and aligned onto Whis
 (so on-screen text and captions use the script's spelling, not Whisper's guesses).
 Writes timeline/words.json, timeline/sentences.json, timeline/transcript.txt.
 """
-import argparse, difflib, os, re, sys
+import argparse, difflib, json, os, re, sys
 sys.path.insert(0, os.path.dirname(__file__))
 from common import load_audio, load_json, norm_word, sentences_from_words, write_timeline
 
@@ -65,10 +65,13 @@ def main():
     audio = load_audio(audio_path, 16000)
     segs, info = model.transcribe(audio, language=a.lang, word_timestamps=True, vad_filter=True, beam_size=5)
     words = []
+    review_regions = []
     for s in segs:
         for w in s.words or []:
             words.append({"word": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)})
         print(f"  {s.start:7.2f}  {s.text.strip()[:90]}")
+        if s.avg_logprob < -1 or s.compression_ratio > 2.4:
+            review_regions.append({"start": round(s.start, 3), "end": round(s.end, 3), "avg_logprob": s.avg_logprob})
     if not words:
         sys.exit("no speech found in the voiceover")
     source = f"whisper:{model_name}"
@@ -78,7 +81,24 @@ def main():
         txt = re.sub(r"^\s*#.*$", "", txt, flags=re.M)  # drop markdown headings
         words = align_script(txt, words)
         source += "+script"
-    write_timeline(os.path.join(a.project, "timeline"), words, sentences_from_words(words), source)
+    timeline = os.path.join(a.project, "timeline")
+    sentences = sentences_from_words(words)
+    write_timeline(timeline, words, sentences, source)
+    with open(os.path.join(timeline, "script.txt"), "w", encoding="utf-8") as out:
+        out.write("\n\n".join(s["text"] for s in sentences) + "\n")
+    def stamp(seconds):
+        value = round(seconds * 1000)
+        return f"{value // 3600000:02d}:{value // 60000 % 60:02d}:{value // 1000 % 60:02d},{value % 1000:03d}"
+    with open(os.path.join(timeline, "transcript.srt"), "w", encoding="utf-8") as out:
+        for index, sentence in enumerate(sentences, 1):
+            out.write(f"{index}\n{stamp(sentence['start'])} --> {stamp(sentence['end'])}\n{sentence['text']}\n\n")
+    report = {"source": source, "language": info.language, "language_probability": info.language_probability,
+              "audio_duration": info.duration, "word_count": len(words), "sentence_count": len(sentences),
+              "first_word_start": words[0]["start"], "last_word_end": words[-1]["end"],
+              "review_regions": review_regions}
+    with open(os.path.join(timeline, "transcription.json"), "w", encoding="utf-8") as out:
+        json.dump(report, out, ensure_ascii=False, indent=2)
+        out.write("\n")
 
 
 if __name__ == "__main__":

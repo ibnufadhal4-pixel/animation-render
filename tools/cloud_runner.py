@@ -69,6 +69,7 @@ def unpack(args, key):
         matrix = json.dumps({"index": list(range(len(plan["segments"])))}, separators=(",", ":"))
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
             out.write(f"matrix={matrix}\n")
+            out.write(f"mode={plan['mode']}\n")
         print(f"Prepared {len(plan['segments'])} segment(s).")
 
 
@@ -76,6 +77,15 @@ def render(args, key):
     plan = json.loads((WORK / "job.json").read_text(encoding="utf-8"))
     segment = plan["segments"][args.index]
     mode = plan["mode"]
+    if mode == "transcribe":
+        print("Transcribing audio on the cloud CPU. Text and diagnostics stay encrypted.", flush=True)
+        command = [sys.executable, "tools/transcribe.py", "--project", PROJECT, "--model", plan["model"]]
+        if plan.get("language"):
+            command += ["--lang", plan["language"]]
+        run(command)
+        package_result(key, mode)
+        print("Encrypted transcript and word timestamps ready.", flush=True)
+        return
     build = PROJECT / "build"
     build.mkdir(exist_ok=True)
     command = ["node", "render.mjs", "--project", PROJECT, "--gl", "swiftshader", "--workers", plan["workers"],
@@ -116,6 +126,8 @@ def package_result(key, mode):
             archive.add(PROJECT / "build/final_sheet.png", arcname="final_sheet.png")
         elif mode == "preview":
             archive.add(PROJECT / "build/preview.mp4", arcname="preview.mp4")
+        elif mode == "transcribe":
+            archive_files(archive, PROJECT / "timeline", "timeline")
         else:
             folder = {"sheet": "sheets", "styles": "styles", "stills": "stills"}[mode]
             archive_files(archive, PROJECT / "build" / folder, folder)
