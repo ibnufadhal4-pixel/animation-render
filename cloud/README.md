@@ -32,7 +32,9 @@ Standard hosted Linux runner compute is free for public repositories under GitHu
 ## Verification
 
 ```bash
-python -m unittest discover -s tests -p "test_cloud*.py"
+python -m unittest discover -s tests -p "test_*.py"
 # Optional real Chromium + FFmpeg + audio smoke test:
 python -m unittest discover -s tests -p "smoke_cloud*.py"
+# Check a fetched real Actions final job against every encrypted segment frame:
+python tests/verify_remote_run.py --job cloud-JOB_ID
 ```

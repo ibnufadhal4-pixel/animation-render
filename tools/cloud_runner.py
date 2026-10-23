@@ -125,6 +125,17 @@ def package_result(key, mode):
         result.unlink(missing_ok=True)
 
 
+def make_final_sheet(video, destination, total_frames, duration):
+    # Midpoints avoid sampling only the opening fade on short videos. At most 60 tiles.
+    count = min(total_frames, 60, max(3, math.ceil(duration / 10)))
+    indices = [min(total_frames - 1, int((index + 0.5) * total_frames / count)) for index in range(count)]
+    select = "+".join(f"eq(n\\,{index})" for index in indices)
+    columns = min(6, count)
+    filters = f"select={select},scale=320:-1,tile={columns}x{math.ceil(count / columns)}"
+    run(["ffmpeg", "-y", "-v", "error", "-i", video, "-vf", filters,
+         "-frames:v", "1", destination])
+
+
 def merge(args, key):
     plan = json.loads((WORK / "job.json").read_text(encoding="utf-8"))
     if plan["mode"] != "final":
@@ -151,8 +162,7 @@ def merge(args, key):
     final = PROJECT / "out/final.mp4"
     run([sys.executable, "audio/mix.py", "--project", PROJECT, "--out", final])
     check_video(final, plan["total_frames"], plan["fps"], audio=True)
-    run(["ffmpeg", "-y", "-v", "error", "-i", final, "-vf", "fps=1/10:round=up,scale=320:-1,tile=6x10",
-         "-frames:v", "1", build / "final_sheet.png"])
+    make_final_sheet(final, build / "final_sheet.png", plan["total_frames"], plan["duration"])
     package_result(key, "final")
     print("Segments joined without video re-encoding; audio and frame-count checks passed.")
 
