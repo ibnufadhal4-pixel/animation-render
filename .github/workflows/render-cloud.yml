@@ -1,0 +1,170 @@
+name: Encrypted cloud render
+run-name: Cloud render ${{ inputs.bundle_tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_tag:
+        description: Encrypted input release tag (created by tools/cloud.py)
+        required: true
+        type: string
+
+# Manual dispatch only. Project code never executes on PRs or forks with secrets.
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-${{ inputs.bundle_tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'cryptography>=44,<50'
+      - id: plan
+        name: Decrypt input and plan segments
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_TAG: ${{ inputs.bundle_tag }}
+        run: python tools/cloud_runner.py unpack --tag "$BUNDLE_TAG" --plan
+      - name: Encrypt private diagnostics
+        if: always()
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+        run: python tools/cloud_runner.py diagnostics --label plan
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-debug-plan
+          overwrite: true
+          path: .cloud-output/debug-plan.enc
+          include-hidden-files: true
+          retention-days: 1
+
+  segment:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install render dependencies
+        run: |
+          python -m pip install -r cloud/requirements.txt
+          npm ci
+          npx playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Decrypt private project
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_TAG: ${{ inputs.bundle_tag }}
+        run: python tools/cloud_runner.py unpack --tag "$BUNDLE_TAG"
+      - name: Render and encrypt segment
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          SEGMENT_INDEX: ${{ matrix.index }}
+        run: python tools/cloud_runner.py render --index "$SEGMENT_INDEX"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-part-${{ matrix.index }}
+          overwrite: true
+          path: |
+            .cloud-output/part-*.enc
+            .cloud-output/result.enc
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - name: Encrypt private diagnostics
+        if: always()
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          SEGMENT_INDEX: ${{ matrix.index }}
+        run: python tools/cloud_runner.py diagnostics --label "segment-$SEGMENT_INDEX"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-debug-segment-${{ matrix.index }}
+          overwrite: true
+          path: .cloud-output/debug-*.enc
+          include-hidden-files: true
+          retention-days: 1
+
+  finish:
+    needs: [plan, segment]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audio dependencies
+        run: |
+          python -m pip install -r cloud/requirements.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Decrypt private project
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_TAG: ${{ inputs.bundle_tag }}
+        run: python tools/cloud_runner.py unpack --tag "$BUNDLE_TAG"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cloud-part-*
+          path: .cloud-parts
+          merge-multiple: true
+      - name: Join segments and master soundtrack
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+        run: python tools/cloud_runner.py merge --parts .cloud-parts
+      - name: Collect preview or still result
+        run: |
+          if [ -f .cloud-parts/result.enc ]; then
+            cp .cloud-parts/result.enc .cloud-output/result.enc
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-result
+          overwrite: true
+          path: .cloud-output/result.enc
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+      - name: Encrypt private diagnostics
+        if: always()
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+        run: python tools/cloud_runner.py diagnostics --label finish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-debug-finish
+          overwrite: true
+          path: .cloud-output/debug-finish.enc
+          include-hidden-files: true
+          retention-days: 1

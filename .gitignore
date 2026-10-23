@@ -1,0 +1,13 @@
+# Publish the studio, never plaintext projects, credentials, downloaded renders or models.
+/projects/
+/.cloud/
+/.cloud-run/
+/.cloud-output/
+/.cloud-parts/
+/node_modules/
+**/__pycache__/
+*.pyc
+/examples/*/build/
+/examples/*/out/
+/.env
+/.env.*
