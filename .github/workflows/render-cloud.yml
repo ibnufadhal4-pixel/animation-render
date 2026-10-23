@@ -71,12 +71,8 @@ jobs:
         with:
           node-version: '22'
       - name: Install render dependencies
-        run: |
-          python -m pip install -r cloud/requirements.txt
-          npm ci
-          npx playwright install --with-deps chromium
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+        timeout-minutes: 10
+        run: bash cloud/setup.sh render
       - name: Decrypt private project
         env:
           AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
@@ -123,10 +119,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install audio dependencies
-        run: |
-          python -m pip install -r cloud/requirements.txt
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+        timeout-minutes: 10
+        run: bash cloud/setup.sh audio
       - name: Decrypt private project
         env:
           AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
