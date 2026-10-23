@@ -17,6 +17,7 @@ from cloud_common import ROOT, archive_files, crypt_file, extract_archive, make_
 
 LOCAL = ROOT / ".cloud"
 WORKFLOW = "render-cloud.yml"
+FINISH_WORKFLOW = "finish-cloud.yml"
 
 
 def gh(*args, input=None):
@@ -68,15 +69,16 @@ def init(args):
             out.write(base64.urlsafe_b64encode(os.urandom(32)).decode() + "\n")
     read_key(key_path.read_text(encoding="ascii"))
     gh("secret", "set", "AITRENDS_CLOUD_KEY", "--repo", args.repo, input=key_path.read_text(encoding="ascii"))
-    destination = ROOT / ".github/workflows" / WORKFLOW
-    template = ROOT / "cloud/render.yml"
-    if destination.exists() and destination.read_bytes() != template.read_bytes() and not args.update_workflow:
-        raise ValueError("Workflow already differs; use --update-workflow to replace it after review")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template, destination)
+    for filename, source in ((WORKFLOW, "render.yml"), (FINISH_WORKFLOW, "finish.yml")):
+        destination = ROOT / ".github/workflows" / filename
+        template = ROOT / "cloud" / source
+        if destination.exists() and destination.read_bytes() != template.read_bytes() and not args.update_workflow:
+            raise ValueError("Workflow already differs; use --update-workflow to replace it after review")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(template, destination)
     save_json(LOCAL / "config.json", {"repo": args.repo, "ref": repo["default_branch"]})
     print("Cloud setup ready. Keep .cloud/key backed up privately; it decrypts your results.")
-    print("Publish the studio files and .github/workflows/render-cloud.yml to the repository default branch.")
+    print("Publish the studio files and generated .github/workflows files to the repository default branch.")
     print("Projects and .cloud are excluded by .gitignore. Check staged files before publishing.")
 
 
@@ -91,7 +93,7 @@ def find_run(state, attempts=1):
     if state.get("run_id"):
         return state["run_id"]
     for attempt in range(attempts):
-        runs = json.loads(gh("run", "list", "--repo", state["repo"], "--workflow", WORKFLOW,
+        runs = json.loads(gh("run", "list", "--repo", state["repo"], "--workflow", state.get("workflow", WORKFLOW),
                             "--limit", "100", "--json", "databaseId,displayTitle"))
         for run in runs:
             if run["displayTitle"] == f"Cloud render {state['job']}":
@@ -191,9 +193,30 @@ def fetch(args):
 def cleanup(args):
     _, state = job_state(args.job)
     gh("release", "delete", args.job, "--repo", state["repo"], "--yes", "--cleanup-tag")
-    if state.get("run_id"):
-        gh("run", "delete", state["run_id"], "--repo", state["repo"])
+    for run_id in {state.get("run_id"), state.get("source_run_id")} - {None}:
+        gh("run", "delete", run_id, "--repo", state["repo"])
     print("Remote encrypted input and run artifacts removed. Local key and results retained.")
+
+
+def finish(args):
+    """Retry only assembly/audio from an existing immutable final job's encrypted parts."""
+    path, state = job_state(args.job)
+    if state["mode"] != "final":
+        raise ValueError("Finish recovery is only for final video jobs")
+    gh("workflow", "view", FINISH_WORKFLOW, "--repo", state["repo"])
+    source = state.get("source_run_id") or find_run(state)
+    gh("workflow", "run", FINISH_WORKFLOW, "--repo", state["repo"], "--ref", state["ref"],
+       "--field", f"bundle_tag={args.job}", "--field", f"source_run_id={source}")
+    state.update(source_run_id=source, workflow=FINISH_WORKFLOW)
+    state.pop("run_id", None)
+    save_json(path, state)
+    try:
+        state["run_id"] = find_run(state, attempts=20)
+        save_json(path, state)
+        print(f"https://github.com/{state['repo']}/actions/runs/{state['run_id']}")
+    except ValueError as exc:
+        print(str(exc))
+    print("Finishing from existing encrypted segments; no animation frames are re-rendered.")
 
 
 def parser():
@@ -214,7 +237,7 @@ def parser():
     send.add_argument("--scale", type=float)
     send.add_argument("--times", default="1", help="Comma-separated times for styles/stills")
     send.add_argument("--styles", default="dusk,midnight,golden,neon,storybook")
-    for name in ("status", "fetch", "cleanup"):
+    for name in ("status", "fetch", "cleanup", "finish"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--job", required=True)
         if name == "fetch":
@@ -226,7 +249,7 @@ def parser():
 if __name__ == "__main__":
     args = parser().parse_args()
     try:
-        {"init": init, "submit": submit, "status": status, "fetch": fetch, "cleanup": cleanup}[args.command](args)
+        {"init": init, "submit": submit, "status": status, "fetch": fetch, "cleanup": cleanup, "finish": finish}[args.command](args)
     except (Exception, KeyboardInterrupt) as exc:
         print(f"Cloud: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -38,7 +38,7 @@ def main():
             plan = json.load(archive.extractfile("job.json"))
         if plan["mode"] != "final":
             raise ValueError("This verifier checks final jobs with separate video segment artifacts")
-        cloud.gh("run", "download", state["run_id"], "--repo", state["repo"], "--pattern", "cloud-part-*",
+        cloud.gh("run", "download", state.get("source_run_id", state["run_id"]), "--repo", state["repo"], "--pattern", "cloud-part-*",
                  "--dir", str(temp / "segments"))
         expected = []
         for index, segment in enumerate(plan["segments"]):

@@ -118,6 +118,7 @@ class CloudContracts(unittest.TestCase):
         (studio / "engine/custom.js").write_text("private style", encoding="utf-8")
         (studio / "player.html").write_text("player", encoding="utf-8")
         (studio / "cloud/render.yml").write_text("workflow template", encoding="utf-8")
+        (studio / "cloud/finish.yml").write_text("finish workflow template", encoding="utf-8")
         local = studio / ".cloud"
         calls = []
         release = {}
@@ -197,6 +198,26 @@ class CloudContracts(unittest.TestCase):
             make_plan(self.root, mode="transcribe", model="unknown")
         with self.assertRaises(ValueError):
             make_plan(self.root, mode="transcribe", language="auto-detect")
+
+    def test_finish_reuses_original_run_and_tracks_recovery_result(self):
+        local = self.root / ".cloud"
+        job = "cloud-" + "a" * 32
+        path = local / "jobs" / job / "state.json"
+        cloud.save_json(path, {"job": job, "repo": "owner/render", "ref": "main", "mode": "final", "run_id": 7})
+        calls = []
+        def fake_gh(*args, input=None):
+            calls.append(args)
+            if args[:2] == ("run", "list"):
+                self.assertIn(cloud.FINISH_WORKFLOW, args)
+                return json.dumps([{"databaseId": 8, "displayTitle": f"Cloud render {job}"}])
+            return ""
+        with patch.object(cloud, "LOCAL", local), patch.object(cloud, "gh", side_effect=fake_gh), contextlib.redirect_stdout(io.StringIO()):
+            cloud.finish(argparse.Namespace(job=job))
+        state = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(state["source_run_id"], 7)
+        self.assertEqual(state["run_id"], 8)
+        self.assertEqual(state["workflow"], cloud.FINISH_WORKFLOW)
+        self.assertTrue(any("source_run_id=7" in args for args in calls))
 
 
 if __name__ == "__main__":

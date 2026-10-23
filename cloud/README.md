@@ -13,6 +13,7 @@ python tools/cloud.py submit --project projects/my-video --mode final --segment-
 python tools/cloud.py status --job cloud-JOB_ID
 python tools/cloud.py fetch --job cloud-JOB_ID --wait
 python tools/cloud.py fetch --job cloud-JOB_ID --diagnostics
+python tools/cloud.py finish --job cloud-JOB_ID
 python tools/cloud.py cleanup --job cloud-JOB_ID
 ```
 
@@ -29,6 +30,13 @@ On failure, use GitHub's **Re-run failed jobs** within 24 hours to reuse success
 Privacy boundaries: public observers can see workflow code, run timing/status, segment counts, encrypted file sizes and encrypted packages. GitHub's runner decrypts the project to render it. Repository collaborators who can edit workflows or access secrets are trusted. Do not print decrypted diagnostics in public logs/issues or add plaintext project files to Git history. Encryption does not remove previously published files.
 
 Standard hosted Linux runner compute is free for public repositories under GitHub's current plan; artifact storage and execution/concurrency limits still apply. This is batch rendering, not a persistent server. Keep artifact retention short and remove completed jobs rather than using Actions as a video archive.
+
+If all video parts succeeded but assembly/audio failed, `finish --job` dispatches
+the latest finish workflow against the original encrypted input and existing parts.
+No animation frames are re-rendered. It records the original source run separately
+from the recovery run, and fetch follows the recovered result. Run it before the
+parts expire (1 day). Scene edits require a fresh full submission; finishing always
+uses the original immutable snapshot. Cleanup removes both source and recovery runs.
 
 ## Cloud transcription
 

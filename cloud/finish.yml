@@ -1,0 +1,71 @@
+name: Finish encrypted cloud render
+run-name: Cloud render ${{ inputs.bundle_tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_tag:
+        description: Original encrypted input release tag
+        required: true
+        type: string
+      source_run_id:
+        description: Original run containing all encrypted video segments
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: finish-${{ inputs.bundle_tag }}
+  cancel-in-progress: false
+
+jobs:
+  finish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audio dependencies
+        timeout-minutes: 10
+        run: bash cloud/setup.sh audio
+      - name: Decrypt original immutable project
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_TAG: ${{ inputs.bundle_tag }}
+        run: python tools/cloud_runner.py unpack --tag "$BUNDLE_TAG"
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: cloud-part-*
+          path: .cloud-parts
+          merge-multiple: true
+      - name: Join original segments and master soundtrack
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+        run: python tools/cloud_runner.py merge --parts .cloud-parts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-result
+          path: .cloud-output/result.enc
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+      - name: Encrypt private diagnostics
+        if: always()
+        env:
+          AITRENDS_CLOUD_KEY: ${{ secrets.AITRENDS_CLOUD_KEY }}
+        run: python tools/cloud_runner.py diagnostics --label finish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-debug-finish
+          path: .cloud-output/debug-finish.enc
+          include-hidden-files: true
+          retention-days: 1
